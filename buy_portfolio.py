@@ -7,7 +7,6 @@ import time
 from pykis import PyKis
 
 # 투자 설정
-TOTAL_INVESTMENT = 20_000_000 + 17_330  # 총 투자액
 MAX_RETRIES = 3  # 최대 재시도 횟수
 RETRY_DELAY = 1  # 재시도 간 대기 시간 (초)
 ORDER_DELAY = 0.5  # 주문 간 대기 시간 (초)
@@ -76,6 +75,41 @@ def calculate_quantities(portfolio_file, total_investment):
     return df
 
 
+def round_to_tick_size(price):
+    """
+    주식 호가 단위로 올림
+
+    한국 주식시장 호가 단위:
+    - 1,000원 미만: 1원
+    - 1,000원 이상 ~ 5,000원 미만: 5원
+    - 5,000원 이상 ~ 10,000원 미만: 10원
+    - 10,000원 이상 ~ 50,000원 미만: 50원
+    - 50,000원 이상 ~ 100,000원 미만: 100원
+    - 100,000원 이상 ~ 500,000원 미만: 500원
+    - 500,000원 이상: 1,000원
+
+    Args:
+        price: 원본 가격
+
+    Returns:
+        int: 호가 단위로 올림된 가격
+    """
+    if price < 1000:
+        return price  # 1원 단위
+    elif price < 5000:
+        return ((price + 4) // 5) * 5  # 5원 단위
+    elif price < 10000:
+        return ((price + 9) // 10) * 10  # 10원 단위
+    elif price < 50000:
+        return ((price + 49) // 50) * 50  # 50원 단위
+    elif price < 100000:
+        return ((price + 99) // 100) * 100  # 100원 단위
+    elif price < 500000:
+        return ((price + 499) // 500) * 500  # 500원 단위
+    else:
+        return ((price + 999) // 1000) * 1000  # 1,000원 단위
+
+
 def initialize_kis(secret_file='secret.json', virtual_file=None):
     """
     PyKis 객체 초기화
@@ -137,7 +171,7 @@ def get_current_holdings(kis):
         return {}
 
 
-def execute_buy_orders(kis, df_buy):
+def execute_buy_orders(kis, df_buy, is_virtual=False):
     """
     계산된 수량으로 매수 주문 실행 (리밸런싱 포함, 최우선 지정가, 재시도 로직 포함)
 
@@ -149,6 +183,7 @@ def execute_buy_orders(kis, df_buy):
     Args:
         kis: PyKis 객체
         df_buy: 매수 계획이 담긴 DataFrame
+        is_virtual: 모의투자 여부 (기본: False)
 
     Returns:
         list: 주문 결과 리스트
@@ -400,6 +435,9 @@ def execute_buy_orders(kis, df_buy):
             buy_qty = delta
             print(f"\n[리밸런싱 매수] {code} {name}: 현재 {current_qty}주 → 목표 {target_qty}주 ({buy_qty}주 매수)")
 
+            # 상한가 계산 (전일 종가의 105%, 호가 단위로 올림)
+            max_price = round_to_tick_size(int(price * 1.05))
+
             # 매수 주문 재시도 로직
             buy_success = False
             last_error = None
@@ -411,10 +449,15 @@ def execute_buy_orders(kis, df_buy):
                         print(f"[재시도 {attempt}/{MAX_RETRIES}] {code} {name}")
                         time.sleep(RETRY_DELAY * (attempt - 1))  # 지수 백오프
                     else:
-                        print(f"[매수] {code} {name}: 가격={price:,}원, 수량={buy_qty}주")
+                        if is_virtual:
+                            print(f"[매수] {code} {name}: 최유리지정가, 수량={buy_qty}주, 상한가={max_price:,}원 (전일종가: {price:,}원)")
+                        else:
+                            print(f"[매수] {code} {name}: 최유리지정가, 수량={buy_qty}주 (실전: price=0)")
 
-                    # 최우선 지정가 매수 주문
-                    order = kis.stock(code).buy(price=price, qty=buy_qty, condition='best', execution=None)
+                    # 최유리지정가 매수 주문
+                    # 실전투자: price=0, 모의투자: 상한가 지정
+                    order_price = max_price if is_virtual else 0
+                    order = kis.stock(code).buy(price=order_price, qty=buy_qty, condition='best', execution=None)
 
                     print(f"[성공] 주문번호: {order.number if hasattr(order, 'number') else 'N/A'}")
                     results.append({
@@ -502,15 +545,38 @@ def main():
     # 명령줄 인수 파싱
     parser = argparse.ArgumentParser(description='포트폴리오 매수 계획 생성 및 주문 실행')
     parser.add_argument('--execute', action='store_true', help='실제 매수 주문 실행 (기본: 계획만 출력)')
-    parser.add_argument('--secret', default='secret.json', help='실전 계좌 secret 파일 경로 (기본: secret.json)')
+    parser.add_argument('--secret', required=True, help='실전 계좌 secret 파일 경로 (필수)')
     parser.add_argument('--virtual', default=None, help='모의투자 계좌 secret 파일 경로 (옵션)')
+    parser.add_argument('--investment', type=int, default=None, help='총 투자액 (원 단위, 기본: 현재 총평가금액 사용)')
     args = parser.parse_args()
 
     # 최신 포트폴리오 파일 찾기
     portfolio_file = get_latest_portfolio_file()
 
+    # 투자액 결정
+    kis = None
+    if args.investment is None:
+        # 모의투자 모드에서는 총평가금액 API가 작동하지 않으므로 투자액 필수
+        if args.virtual:
+            print("\n[오류] 모의투자 모드에서는 --investment 옵션으로 투자액을 지정해야 합니다.")
+            print("예: python buy_portfolio.py --virtual secret_virtual.json --investment 10000000")
+            return
+
+        # 실전투자 모드에서만 현재 총평가금액 조회
+        print("\n투자액 설정: 현재 총평가금액 사용 (실전투자 모드)")
+        kis = initialize_kis(args.secret, args.virtual)
+        account = kis.account()
+        balance = account.balance()
+        total_investment = int(balance.total)
+        print(f"현재 총평가금액: {total_investment:,}원")
+    else:
+        # 지정된 투자액 사용
+        total_investment = args.investment
+        mode_str = "모의투자" if args.virtual else "실전투자"
+        print(f"\n투자액 설정: 수동 지정 ({total_investment:,}원) - {mode_str} 모드")
+
     # 매수 수량 계산
-    df_buy = calculate_quantities(portfolio_file, TOTAL_INVESTMENT)
+    df_buy = calculate_quantities(portfolio_file, total_investment)
 
     # 결과 출력
     print("\n" + "=" * 80)
@@ -525,8 +591,8 @@ def main():
 
     print("-" * 80)
     total_actual = df_buy['실투자액'].sum()
-    remaining = TOTAL_INVESTMENT - total_actual
-    print(f"{'합계':<32} {'':<12} {'':<8} {TOTAL_INVESTMENT:>15,} {total_actual:>15,}")
+    remaining = total_investment - total_actual
+    print(f"{'합계':<32} {'':<12} {'':<8} {total_investment:>15,} {total_actual:>15,}")
     print(f"{'잔액':<32} {'':<12} {'':<8} {'':<15} {remaining:>15,}")
 
     # 결과 저장
@@ -539,11 +605,12 @@ def main():
 
     # 실행 옵션이 있을 경우 실제 주문 실행
     if args.execute:
-        # PyKis 초기화
-        kis = initialize_kis(args.secret, args.virtual)
+        # PyKis 초기화 (아직 초기화되지 않은 경우만)
+        if kis is None:
+            kis = initialize_kis(args.secret, args.virtual)
 
-        # 매수 주문 실행
-        results = execute_buy_orders(kis, df_buy)
+        # 매수 주문 실행 (모의투자 여부 전달)
+        results = execute_buy_orders(kis, df_buy, is_virtual=bool(args.virtual))
 
         # 결과 저장
         results_df = pd.DataFrame(results)
