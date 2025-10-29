@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import json
 import sys
+import argparse
 from pathlib import Path
 from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
@@ -517,9 +518,18 @@ def select_portfolio_stocks(stock_codes, end_date, top_momentum=TOP_MOMENTUM_COU
     return df_portfolio.to_dict('records')
 
 
-if __name__ == "__main__":
+def main():
+    """메인 함수"""
+    global kis
+
+    # 명령줄 인수 파싱
+    parser = argparse.ArgumentParser(description='모멘텀 및 FIP 기반 포트폴리오 종목 선정')
+    parser.add_argument('--secret', required=True, help='KIS API secret 파일 경로 (필수)')
+    args = parser.parse_args()
+
     # PyKis 초기화
-    kis = PyKis('secret.json', keep_token=True)
+    logger.info(f"KIS API 초기화: {args.secret}")
+    kis = PyKis(args.secret, keep_token=True)
 
     # 모멘텀 계산용 필터링된 종목 코드
     print("=" * 50)
@@ -559,3 +569,7 @@ if __name__ == "__main__":
         print(f"\n포트폴리오가 {output_file}에 저장되었습니다.")
     else:
         print("\n포트폴리오 선정 실패")
+
+
+if __name__ == "__main__":
+    main()
