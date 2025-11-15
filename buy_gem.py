@@ -6,6 +6,8 @@ Created on 2025-11-14
 """
 
 import argparse
+import json
+import os
 import time
 from datetime import datetime, timedelta
 from pykis import PyKis, KisAuth
@@ -16,6 +18,7 @@ MAX_RETRIES = 3  # 최대 재시도 횟수
 RETRY_DELAY = 1  # 재시도 간 대기 시간 (초)
 ORDER_DELAY = 0.5  # 주문 간 대기 시간 (초)
 REBALANCE_WAIT_TIME = 60  # 리밸런싱 매도 후 매수 대기 시간 (초)
+EXECUTION_LOG_FILE = "gem_execution_log.json"  # 실행 기록 파일
 
 
 def round_to_tick_size(price):
@@ -70,6 +73,84 @@ def initialize_kis(secret_file='secret.json', virtual_file=None):
     else:
         print(f"실전투자 모드로 초기화: {secret_file}")
         return PyKis(secret_file, keep_token=True)
+
+
+def load_execution_log():
+    """
+    실행 기록 파일 로드
+
+    Returns:
+        dict: 실행 기록 데이터
+    """
+    if os.path.exists(EXECUTION_LOG_FILE):
+        try:
+            with open(EXECUTION_LOG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[경고] 실행 기록 파일 로드 실패: {e}")
+            return {"executions": []}
+    else:
+        return {"executions": []}
+
+
+def save_execution_log(log_data):
+    """
+    실행 기록 파일 저장
+
+    Args:
+        log_data: 저장할 실행 기록 데이터
+    """
+    try:
+        with open(EXECUTION_LOG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(log_data, f, ensure_ascii=False, indent=2)
+        print(f"[기록] 실행 기록 저장 완료: {EXECUTION_LOG_FILE}")
+    except Exception as e:
+        print(f"[경고] 실행 기록 저장 실패: {e}")
+
+
+def check_monthly_execution():
+    """
+    이번 달에 이미 실행되었는지 확인
+
+    Returns:
+        bool: True면 이미 실행됨, False면 실행 안됨
+    """
+    log_data = load_execution_log()
+    current_month = datetime.now().strftime("%Y-%m")
+
+    for execution in log_data.get("executions", []):
+        if execution.get("month") == current_month and execution.get("success"):
+            print(f"\n⚠️  이번 달({current_month})에 이미 실행되었습니다.")
+            print(f"   실행일: {execution.get('date')}")
+            print(f"   선택 종목: {execution.get('selected_code')} ({execution.get('selected_name')})")
+            return True
+
+    print(f"\n✅ 이번 달({current_month}) 첫 실행입니다.")
+    return False
+
+
+def record_execution(selected_code, selected_name, success):
+    """
+    실행 기록 추가
+
+    Args:
+        selected_code: 선택된 종목 코드
+        selected_name: 선택된 종목명
+        success: 실행 성공 여부
+    """
+    log_data = load_execution_log()
+
+    execution_record = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "month": datetime.now().strftime("%Y-%m"),
+        "selected_code": selected_code,
+        "selected_name": selected_name,
+        "success": success,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    log_data["executions"].append(execution_record)
+    save_execution_log(log_data)
 
 
 def get_single_nav(kis: PyKis, stock_code: str, date: str) -> float:
@@ -566,7 +647,15 @@ def main():
     parser.add_argument('--secret', required=True, help='실전 계좌 secret 파일 경로 (필수)')
     parser.add_argument('--virtual', default=None, help='모의투자 계좌 secret 파일 경로 (옵션)')
     parser.add_argument('--investment', type=int, default=None, help='총 투자액 (원 단위, 기본: 현재 총평가금액 사용)')
+    parser.add_argument('--force', action='store_true', help='이번 달 실행 기록 무시하고 강제 실행')
     args = parser.parse_args()
+
+    # 실행 기록 확인 (--execute 모드이고 --force가 아닐 때만)
+    if args.execute and not args.force:
+        if check_monthly_execution():
+            print("\n⏭️  이미 실행되었으므로 종료합니다.")
+            print("   강제 실행하려면 --force 옵션을 사용하세요.")
+            return
 
     # PyKis 초기화
     print("🔐 인증 중...")
@@ -691,8 +780,20 @@ def main():
 
         if rebalance_results['success']:
             print(f"\n🎉 리밸런싱 성공!")
+            # 실행 기록 저장
+            record_execution(
+                selected_code=best_stock['stock_code'],
+                selected_name=best_stock['stock_name'],
+                success=True
+            )
         else:
             print(f"\n⚠️  일부 주문이 실패했습니다. 결과를 확인하세요.")
+            # 실패도 기록 (성공하지 않음으로 표시)
+            record_execution(
+                selected_code=best_stock['stock_code'],
+                selected_name=best_stock['stock_name'],
+                success=False
+            )
 
     else:
         print("\n💡 실제 주문을 실행하려면 --execute 옵션을 사용하세요.")
