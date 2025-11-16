@@ -196,7 +196,13 @@ def get_single_nav(kis: PyKis, stock_code: str, date: str) -> float:
                     output = data.get('output', [])
                     if output:
                         nav_value = float(output[0]['nav'])
+                        if nav_value <= 0:
+                            print(f"[디버그] {stock_code} {date}: NAV={nav_value} (유효하지 않음, 주변일 탐색 필요)")
+                            return None
+                        print(f"[디버그] {stock_code} {date}: NAV={nav_value}")
                         return nav_value
+                    else:
+                        print(f"[디버그] {stock_code} {date}: output 배열이 비어있음 (휴장일 가능성)")
 
             return None
 
@@ -331,6 +337,11 @@ def calculate_12m_total_return(kis: PyKis, stock_code: str, stock_name: str = No
 
     if nav_start is None or nav_end is None:
         print(f"❌ {stock_code} ({stock_name}): NAV 조회 실패")
+        return None
+
+    # NAV 값이 0인 경우도 체크
+    if nav_start <= 0 or nav_end <= 0:
+        print(f"❌ {stock_code} ({stock_name}): NAV 값이 유효하지 않음 (시작: {nav_start}, 종료: {nav_end})")
         return None
 
     # 3. 배당금 조회
