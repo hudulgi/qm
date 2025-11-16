@@ -7,7 +7,9 @@ Created on 2025-11-14
 
 import argparse
 import json
+import logging
 import os
+import sys
 import time
 from datetime import datetime, timedelta
 from pykis import PyKis, KisAuth
@@ -20,6 +22,54 @@ ORDER_DELAY = 0.5  # 주문 간 대기 시간 (초)
 REBALANCE_WAIT_TIME = 60  # 리밸런싱 매도 후 매수 대기 시간 (초)
 EXECUTION_LOG_FILE = "gem_execution_log.json"  # 실행 기록 파일
 BUFFER_RATIO = 0.99  # 매수 시 투자액 버퍼 비율 (99%, 1% 여유)
+LOG_DIR = "logs"  # 로그 디렉토리
+
+
+def setup_logger():
+    """
+    로거 설정: 콘솔 + 파일 출력
+
+    Returns:
+        logging.Logger: 설정된 로거
+    """
+    # 로그 디렉토리 생성
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+
+    # 로그 파일명: gem_YYYYMMDD_HHMMSS.log
+    log_filename = os.path.join(
+        LOG_DIR,
+        f"gem_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    )
+
+    # 로거 생성
+    logger = logging.getLogger('GEM')
+    logger.setLevel(logging.DEBUG)
+
+    # 기존 핸들러 제거 (중복 방지)
+    logger.handlers.clear()
+
+    # 포맷 설정
+    formatter = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # 콘솔 핸들러
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # 파일 핸들러
+    file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    logger.info(f"로그 파일: {log_filename}")
+
+    return logger
 
 
 def round_to_tick_size(price):
@@ -154,7 +204,7 @@ def record_execution(selected_code, selected_name, success):
     save_execution_log(log_data)
 
 
-def get_single_nav(kis: PyKis, stock_code: str, date: str) -> float:
+def get_single_nav(kis: PyKis, stock_code: str, date: str, logger=None) -> float:
     """
     특정 날짜의 NAV 값 조회 (재시도 로직 포함)
 
@@ -162,6 +212,7 @@ def get_single_nav(kis: PyKis, stock_code: str, date: str) -> float:
         kis: PyKis 인스턴스
         stock_code: 종목코드
         date: 조회 날짜 (YYYYMMDD)
+        logger: 로거 인스턴스
 
     Returns:
         float: NAV 값
@@ -197,12 +248,15 @@ def get_single_nav(kis: PyKis, stock_code: str, date: str) -> float:
                     if output:
                         nav_value = float(output[0]['nav'])
                         if nav_value <= 0:
-                            print(f"[디버그] {stock_code} {date}: NAV={nav_value} (유효하지 않음, 주변일 탐색 필요)")
+                            if logger:
+                                logger.debug(f"{stock_code} {date}: NAV={nav_value} (유효하지 않음, 주변일 탐색 필요)")
                             return None
-                        print(f"[디버그] {stock_code} {date}: NAV={nav_value}")
+                        if logger:
+                            logger.debug(f"{stock_code} {date}: NAV={nav_value}")
                         return nav_value
                     else:
-                        print(f"[디버그] {stock_code} {date}: output 배열이 비어있음 (휴장일 가능성)")
+                        if logger:
+                            logger.debug(f"{stock_code} {date}: output 배열이 비어있음 (휴장일 가능성)")
 
             return None
 
@@ -213,11 +267,13 @@ def get_single_nav(kis: PyKis, stock_code: str, date: str) -> float:
             is_network_error = any(keyword in error_msg for keyword in network_errors)
 
             if is_network_error and attempt < MAX_RETRIES:
-                print(f"[재시도 {attempt}/{MAX_RETRIES}] NAV 조회 오류 ({stock_code}, {date}): {e}")
+                if logger:
+                    logger.warning(f"[재시도 {attempt}/{MAX_RETRIES}] NAV 조회 오류 ({stock_code}, {date}): {e}")
                 time.sleep(RETRY_DELAY * attempt)
             else:
                 if attempt == MAX_RETRIES:
-                    print(f"[실패] NAV 조회 최대 재시도 초과 ({stock_code}, {date}): {e}")
+                    if logger:
+                        logger.error(f"NAV 조회 최대 재시도 초과 ({stock_code}, {date}): {e}")
                 return None
 
     return None
@@ -292,7 +348,7 @@ def get_dividends(kis: PyKis, stock_code: str, start_date: str, end_date: str) -
     return 0.0
 
 
-def calculate_12m_total_return(kis: PyKis, stock_code: str, stock_name: str = None) -> dict:
+def calculate_12m_total_return(kis: PyKis, stock_code: str, stock_name: str = None, logger=None) -> dict:
     """
     12개월 토탈리턴 수익률 계산 (NAV 가격 변동 + 배당)
 
@@ -300,6 +356,7 @@ def calculate_12m_total_return(kis: PyKis, stock_code: str, stock_name: str = No
         kis: PyKis 인스턴스
         stock_code: 종목코드
         stock_name: 종목명 (옵션)
+        logger: 로거 인스턴스
 
     Returns:
         dict: 토탈리턴 정보
@@ -312,36 +369,44 @@ def calculate_12m_total_return(kis: PyKis, stock_code: str, stock_name: str = No
     start_date = (today - timedelta(days=365)).strftime("%Y%m%d")
 
     # 1. 시작일 NAV 조회
-    nav_start = get_single_nav(kis, stock_code, start_date)
+    nav_start = get_single_nav(kis, stock_code, start_date, logger)
 
     if nav_start is None:
         # 영업일이 아닐 수 있으므로 며칠 앞뒤로 시도
         for offset in range(1, 10):
             adjusted_date = (today - timedelta(days=365+offset)).strftime("%Y%m%d")
-            nav_start = get_single_nav(kis, stock_code, adjusted_date)
+            nav_start = get_single_nav(kis, stock_code, adjusted_date, logger)
             if nav_start is not None:
                 start_date = adjusted_date
                 break
 
     # 2. 현재 NAV 조회
-    nav_end = get_single_nav(kis, stock_code, end_date)
+    nav_end = get_single_nav(kis, stock_code, end_date, logger)
 
     if nav_end is None:
         # 오늘이 영업일이 아닐 수 있으므로 최근 영업일 찾기
         for offset in range(1, 10):
             adjusted_date = (today - timedelta(days=offset)).strftime("%Y%m%d")
-            nav_end = get_single_nav(kis, stock_code, adjusted_date)
+            nav_end = get_single_nav(kis, stock_code, adjusted_date, logger)
             if nav_end is not None:
                 end_date = adjusted_date
                 break
 
     if nav_start is None or nav_end is None:
-        print(f"❌ {stock_code} ({stock_name}): NAV 조회 실패")
+        msg = f"❌ {stock_code} ({stock_name}): NAV 조회 실패"
+        if logger:
+            logger.error(msg)
+        else:
+            print(msg)
         return None
 
     # NAV 값이 0인 경우도 체크
     if nav_start <= 0 or nav_end <= 0:
-        print(f"❌ {stock_code} ({stock_name}): NAV 값이 유효하지 않음 (시작: {nav_start}, 종료: {nav_end})")
+        msg = f"❌ {stock_code} ({stock_name}): NAV 값이 유효하지 않음 (시작: {nav_start}, 종료: {nav_end})"
+        if logger:
+            logger.error(msg)
+        else:
+            print(msg)
         return None
 
     # 3. 배당금 조회
@@ -664,46 +729,53 @@ def main():
     parser.add_argument('--force', action='store_true', help='이번 달 실행 기록 무시하고 강제 실행')
     args = parser.parse_args()
 
+    # 로거 초기화
+    logger = setup_logger()
+    logger.info("="*80)
+    logger.info("GEM(Global Equities Momentum) 전략 시작")
+    logger.info("="*80)
+
     # 실행 기록 확인 (--execute 모드이고 --force가 아닐 때만)
     if args.execute and not args.force:
         if check_monthly_execution():
-            print("\n⏭️  이미 실행되었으므로 종료합니다.")
-            print("   강제 실행하려면 --force 옵션을 사용하세요.")
+            logger.warning("이미 실행되었으므로 종료합니다.")
+            logger.info("강제 실행하려면 --force 옵션을 사용하세요.")
             return
 
     # PyKis 초기화
-    print("🔐 인증 중...")
+    logger.info("🔐 인증 중...")
     kis = initialize_kis(args.secret, args.virtual)
+    logger.info("인증 완료")
 
     # 대상 종목 코드 (수동 지정, 나중에 파라미터로 받도록 수정 가능)
     target_codes = ["069500", "379800", "423160"]
 
     # 종목명 조회
-    print(f"\n{'='*80}")
-    print(f"종목명 조회 중...")
-    print(f"{'='*80}")
+    logger.info("="*80)
+    logger.info("종목명 조회 중...")
+    logger.info("="*80)
 
     target_stocks = []
     for code in target_codes:
         name = get_stock_name(kis, code)
         target_stocks.append({"code": code, "name": name})
-        print(f"  - {code}: {name}")
+        logger.info(f"  - {code}: {name}")
         time.sleep(0.3)  # API 호출 제한 고려
 
-    print(f"\n{'='*80}")
-    print(f"📊 GEM 전략 - 12개월 토탈리턴 분석")
-    print(f"{'='*80}")
-    print(f"분석 종목: {len(target_stocks)}개")
+    logger.info("="*80)
+    logger.info("📊 GEM 전략 - 12개월 토탈리턴 분석")
+    logger.info("="*80)
+    logger.info(f"분석 종목: {len(target_stocks)}개")
 
     # 각 종목의 12개월 토탈리턴 계산
     results = []
 
     for stock in target_stocks:
-        print(f"\n{'-'*80}")
-        print(f"종목 분석: {stock['code']} ({stock['name']})")
-        print(f"{'-'*80}")
+        logger.info("-"*80)
+        logger.info(f"종목 분석: {stock['code']} ({stock['name']})")
+        logger.info("-"*80)
 
-        result = calculate_12m_total_return(kis, stock['code'], stock['name'])
+        result = calculate_12m_total_return(kis, stock['code'], stock['name'], logger)
 
         if result:
             results.append(result)
