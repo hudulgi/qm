@@ -19,6 +19,7 @@ RETRY_DELAY = 1  # 재시도 간 대기 시간 (초)
 ORDER_DELAY = 0.5  # 주문 간 대기 시간 (초)
 REBALANCE_WAIT_TIME = 60  # 리밸런싱 매도 후 매수 대기 시간 (초)
 EXECUTION_LOG_FILE = "gem_execution_log.json"  # 실행 기록 파일
+BUFFER_RATIO = 0.99  # 매수 시 투자액 버퍼 비율 (99%, 1% 여유)
 
 
 def round_to_tick_size(price):
@@ -570,8 +571,9 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
         print(f"❌ 현재가 조회 실패: {target_code}")
         return results
 
-    # 매수 수량 계산
-    buy_qty = int(total_investment / current_price)
+    # 매수 수량 계산 (버퍼 적용으로 가격 변동 대비)
+    safe_investment = int(total_investment * BUFFER_RATIO)
+    buy_qty = int(safe_investment / current_price)
 
     if buy_qty <= 0:
         print(f"❌ 매수 수량이 0입니다. 투자액을 확인하세요.")
@@ -579,7 +581,8 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
 
     print(f"\n[매수] {target_code} ({target_name})")
     print(f"  현재가: {current_price:,}원")
-    print(f"  투자액: {total_investment:,}원")
+    print(f"  총투자액: {total_investment:,}원")
+    print(f"  실투자액: {safe_investment:,}원 (버퍼 {int((1-BUFFER_RATIO)*100)}% 적용)")
     print(f"  매수수량: {buy_qty}주")
 
     # 상한가 계산
