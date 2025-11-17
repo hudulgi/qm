@@ -12,7 +12,7 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
-from pykis import PyKis, KisAuth
+from pykis import PyKis, KisAuth, KisQuote
 
 
 # 투자 설정
@@ -516,8 +516,8 @@ def get_current_price(kis, stock_code):
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             stock = kis.stock(stock_code)
-            price_data = stock.price()
-            return int(price_data.price)
+            price_data: KisQuote = stock.quote()
+            return int(price_data.close)
         except Exception as e:
             error_msg = str(e).lower()
             # 네트워크 관련 오류 체크
