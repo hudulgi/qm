@@ -24,14 +24,16 @@ EXECUTION_LOG_FILE = "gem_execution_log.json"  # 실행 기록 파일
 BUFFER_RATIO = 0.99  # 매수 시 투자액 버퍼 비율 (99%, 1% 여유)
 LOG_DIR = "logs"  # 로그 디렉토리
 
+# 전역 로거
+logger = None
+
 
 def setup_logger():
     """
-    로거 설정: 콘솔 + 파일 출력
-
-    Returns:
-        logging.Logger: 설정된 로거
+    전역 로거 설정: 콘솔 + 파일 출력
     """
+    global logger
+
     # 로그 디렉토리 생성
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR)
@@ -68,8 +70,6 @@ def setup_logger():
     logger.addHandler(file_handler)
 
     logger.info(f"로그 파일: {log_filename}")
-
-    return logger
 
 
 def round_to_tick_size(price):
@@ -119,10 +119,10 @@ def initialize_kis(secret_file='secret.json', virtual_file=None):
         PyKis: 초기화된 PyKis 객체
     """
     if virtual_file:
-        print(f"모의투자 모드로 초기화: {secret_file}, {virtual_file}")
+        logger.info(f"모의투자 모드로 초기화: {secret_file}, {virtual_file}")
         return PyKis(secret_file, virtual_file, keep_token=True)
     else:
-        print(f"실전투자 모드로 초기화: {secret_file}")
+        logger.info(f"실전투자 모드로 초기화: {secret_file}")
         return PyKis(secret_file, keep_token=True)
 
 
@@ -138,7 +138,7 @@ def load_execution_log():
             with open(EXECUTION_LOG_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[경고] 실행 기록 파일 로드 실패: {e}")
+            logger.warning(f"실행 기록 파일 로드 실패: {e}")
             return {"executions": []}
     else:
         return {"executions": []}
@@ -154,9 +154,9 @@ def save_execution_log(log_data):
     try:
         with open(EXECUTION_LOG_FILE, 'w', encoding='utf-8') as f:
             json.dump(log_data, f, ensure_ascii=False, indent=2)
-        print(f"[기록] 실행 기록 저장 완료: {EXECUTION_LOG_FILE}")
+        logger.info(f"실행 기록 저장 완료: {EXECUTION_LOG_FILE}")
     except Exception as e:
-        print(f"[경고] 실행 기록 저장 실패: {e}")
+        logger.warning(f"실행 기록 저장 실패: {e}")
 
 
 def check_monthly_execution():
@@ -171,12 +171,12 @@ def check_monthly_execution():
 
     for execution in log_data.get("executions", []):
         if execution.get("month") == current_month and execution.get("success"):
-            print(f"\n⚠️  이번 달({current_month})에 이미 실행되었습니다.")
-            print(f"   실행일: {execution.get('date')}")
-            print(f"   선택 종목: {execution.get('selected_code')} ({execution.get('selected_name')})")
+            logger.warning(f"⚠️  이번 달({current_month})에 이미 실행되었습니다.")
+            logger.info(f"   실행일: {execution.get('date')}")
+            logger.info(f"   선택 종목: {execution.get('selected_code')} ({execution.get('selected_name')})")
             return True
 
-    print(f"\n✅ 이번 달({current_month}) 첫 실행입니다.")
+    logger.info(f"✅ 이번 달({current_month}) 첫 실행입니다.")
     return False
 
 
@@ -338,11 +338,11 @@ def get_dividends(kis: PyKis, stock_code: str, start_date: str, end_date: str) -
             is_network_error = any(keyword in error_msg for keyword in network_errors)
 
             if is_network_error and attempt < MAX_RETRIES:
-                print(f"[재시도 {attempt}/{MAX_RETRIES}] 배당금 조회 오류 ({stock_code}): {e}")
+                logger.warning(f"[재시도 {attempt}/{MAX_RETRIES}] 배당금 조회 오류 ({stock_code}): {e}")
                 time.sleep(RETRY_DELAY * attempt)
             else:
                 if attempt == MAX_RETRIES:
-                    print(f"[실패] 배당금 조회 최대 재시도 초과 ({stock_code}): {e}")
+                    logger.error(f"배당금 조회 최대 재시도 초과 ({stock_code}): {e}")
                 return 0.0
 
     return 0.0
@@ -462,7 +462,7 @@ def get_current_holdings(kis):
         return holdings
 
     except Exception as e:
-        print(f"[경고] 보유 잔고 조회 실패: {e}")
+        logger.warning(f"보유 잔고 조회 실패: {e}")
         return {}
 
 
@@ -489,13 +489,13 @@ def get_stock_name(kis, stock_code):
             is_network_error = any(keyword in error_msg for keyword in network_errors)
 
             if is_network_error and attempt < MAX_RETRIES:
-                print(f"[재시도 {attempt}/{MAX_RETRIES}] 종목명 조회 오류 ({stock_code}): {e}")
+                logger.warning(f"[재시도 {attempt}/{MAX_RETRIES}] 종목명 조회 오류 ({stock_code}): {e}")
                 time.sleep(RETRY_DELAY * attempt)
             else:
                 if attempt == MAX_RETRIES:
-                    print(f"[실패] 종목명 조회 최대 재시도 초과 ({stock_code}): {e}")
+                    logger.error(f"종목명 조회 최대 재시도 초과 ({stock_code}): {e}")
                 else:
-                    print(f"[경고] {stock_code} 종목명 조회 실패: {e}")
+                    logger.warning(f"{stock_code} 종목명 조회 실패: {e}")
                 return stock_code  # 실패시 종목코드 반환
 
     return stock_code
@@ -525,13 +525,48 @@ def get_current_price(kis, stock_code):
             is_network_error = any(keyword in error_msg for keyword in network_errors)
 
             if is_network_error and attempt < MAX_RETRIES:
-                print(f"[재시도 {attempt}/{MAX_RETRIES}] 현재가 조회 오류 ({stock_code}): {e}")
+                logger.warning(f"[재시도 {attempt}/{MAX_RETRIES}] 현재가 조회 오류 ({stock_code}): {e}")
                 time.sleep(RETRY_DELAY * attempt)
             else:
                 if attempt == MAX_RETRIES:
-                    print(f"[실패] 현재가 조회 최대 재시도 초과 ({stock_code}): {e}")
+                    logger.error(f"현재가 조회 최대 재시도 초과 ({stock_code}): {e}")
                 else:
-                    print(f"[경고] {stock_code} 현재가 조회 실패: {e}")
+                    logger.warning(f"{stock_code} 현재가 조회 실패: {e}")
+                return None
+
+    return None
+
+
+def get_total_balance(kis):
+    """
+    총평가금액 조회 (재시도 로직 포함)
+
+    Args:
+        kis: PyKis 객체
+
+    Returns:
+        int: 총평가금액
+    """
+    # 재시도 로직
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            account = kis.account()
+            balance = account.balance()
+            return int(balance.total)
+        except Exception as e:
+            error_msg = str(e).lower()
+            # 네트워크 관련 오류 체크
+            network_errors = ['connection', 'timeout', 'remote', 'disconnect']
+            is_network_error = any(keyword in error_msg for keyword in network_errors)
+
+            if is_network_error and attempt < MAX_RETRIES:
+                logger.warning(f"[재시도 {attempt}/{MAX_RETRIES}] 총평가금액 조회 오류: {e}")
+                time.sleep(RETRY_DELAY * attempt)
+            else:
+                if attempt == MAX_RETRIES:
+                    logger.error(f"총평가금액 조회 최대 재시도 초과: {e}")
+                else:
+                    logger.warning(f"총평가금액 조회 실패: {e}")
                 return None
 
     return None
@@ -560,31 +595,31 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
     # 1. 현재 보유 종목 조회
     holdings = get_current_holdings(kis)
 
-    print(f"\n현재 보유 종목: {len(holdings)}개")
+    logger.info(f"\n현재 보유 종목: {len(holdings)}개")
     for code, info in holdings.items():
-        print(f"  {code} ({info['name']}): {info['qty']}주")
+        logger.info(f"  {code} ({info['name']}): {info['qty']}주")
 
     # 2. 목표 종목 이외의 모든 종목 매도
     non_target_holdings = {code: info for code, info in holdings.items() if code != target_code}
 
     if non_target_holdings:
-        print(f"\n{'='*80}")
-        print(f"[1단계] 기존 보유 종목 전량 매도 ({len(non_target_holdings)}개)")
-        print(f"{'='*80}")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"[1단계] 기존 보유 종목 전량 매도 ({len(non_target_holdings)}개)")
+        logger.info(f"{'='*80}")
 
         for code, info in non_target_holdings.items():
             qty = info['qty']
-            print(f"\n[매도] {code} ({info['name']}): {qty}주")
+            logger.info(f"\n[매도] {code} ({info['name']}): {qty}주")
 
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
                     if attempt > 1:
-                        print(f"[재시도 {attempt}/{MAX_RETRIES}]")
+                        logger.warning(f"[재시도 {attempt}/{MAX_RETRIES}]")
                         time.sleep(RETRY_DELAY * (attempt - 1))
 
                     # 시장가 전량 매도
                     sell_order = kis.stock(code).sell(price=None, qty=qty, condition=None, execution=None)
-                    print(f"[매도 성공] 주문번호: {sell_order.number if hasattr(sell_order, 'number') else 'N/A'}")
+                    logger.info(f"[매도 성공] 주문번호: {sell_order.number if hasattr(sell_order, 'number') else 'N/A'}")
                     results['sell_orders'].append({
                         'code': code,
                         'name': info['name'],
@@ -599,7 +634,7 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
                     no_retry_keywords = ['잔고', '부족', '수량', '불가', '영업일', '장마감', '장종료', '장시작전', '매매거래정지']
 
                     if any(keyword in error_msg for keyword in no_retry_keywords):
-                        print(f"[매도 실패] {e} (재시도 불가)")
+                        logger.error(f"[매도 실패] {e} (재시도 불가)")
                         results['sell_orders'].append({
                             'code': code,
                             'name': info['name'],
@@ -610,7 +645,7 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
                         break
 
                     if attempt == MAX_RETRIES:
-                        print(f"[매도 실패] {e} (최대 재시도 초과)")
+                        logger.error(f"[매도 실패] {e} (최대 재시도 초과)")
                         results['sell_orders'].append({
                             'code': code,
                             'name': info['name'],
@@ -623,28 +658,28 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
 
         # 매도 후 대기
         if results['sell_orders']:
-            print(f"\n[대기] 매도 완료 후 {REBALANCE_WAIT_TIME}초 대기...")
+            logger.info(f"\n[대기] 매도 완료 후 {REBALANCE_WAIT_TIME}초 대기...")
             time.sleep(REBALANCE_WAIT_TIME)
 
     # 3. 목표 종목이 이미 보유 중인지 확인
     target_holding = holdings.get(target_code, {}).get('qty', 0)
 
     if target_holding > 0:
-        print(f"\n[알림] 목표 종목 {target_code} ({target_name})을 이미 {target_holding}주 보유 중입니다.")
-        print(f"[알림] 기존 보유 종목을 유지합니다.")
+        logger.info(f"\n[알림] 목표 종목 {target_code} ({target_name})을 이미 {target_holding}주 보유 중입니다.")
+        logger.info(f"[알림] 기존 보유 종목을 유지합니다.")
         results['success'] = True
         return results
 
     # 4. 목표 종목 매수
-    print(f"\n{'='*80}")
-    print(f"[2단계] 목표 종목 전액 매수")
-    print(f"{'='*80}")
+    logger.info(f"\n{'='*80}")
+    logger.info(f"[2단계] 목표 종목 전액 매수")
+    logger.info(f"{'='*80}")
 
     # 현재가 조회
     current_price = get_current_price(kis, target_code)
 
     if current_price is None:
-        print(f"❌ 현재가 조회 실패: {target_code}")
+        logger.error(f"❌ 현재가 조회 실패: {target_code}")
         return results
 
     # 매수 수량 계산 (버퍼 적용으로 가격 변동 대비)
@@ -652,34 +687,27 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
     buy_qty = int(safe_investment / current_price)
 
     if buy_qty <= 0:
-        print(f"❌ 매수 수량이 0입니다. 투자액을 확인하세요.")
+        logger.error(f"❌ 매수 수량이 0입니다. 투자액을 확인하세요.")
         return results
 
-    print(f"\n[매수] {target_code} ({target_name})")
-    print(f"  현재가: {current_price:,}원")
-    print(f"  총투자액: {total_investment:,}원")
-    print(f"  실투자액: {safe_investment:,}원 (버퍼 {int((1-BUFFER_RATIO)*100)}% 적용)")
-    print(f"  매수수량: {buy_qty}주")
-
-    # 상한가 계산
-    max_price = round_to_tick_size(int(current_price * 1.05))
+    logger.info(f"\n[매수] {target_code} ({target_name})")
+    logger.info(f"  현재가: {current_price:,}원")
+    logger.info(f"  총투자액: {total_investment:,}원")
+    logger.info(f"  실투자액: {safe_investment:,}원 (버퍼 {int((1-BUFFER_RATIO)*100)}% 적용)")
+    logger.info(f"  매수수량: {buy_qty}주")
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             if attempt > 1:
-                print(f"[재시도 {attempt}/{MAX_RETRIES}]")
+                logger.warning(f"[재시도 {attempt}/{MAX_RETRIES}]")
                 time.sleep(RETRY_DELAY * (attempt - 1))
             else:
-                if is_virtual:
-                    print(f"[매수] 최유리지정가, 수량={buy_qty}주, 상한가={max_price:,}원")
-                else:
-                    print(f"[매수] 최유리지정가, 수량={buy_qty}주 (실전: price=0)")
+                logger.info(f"[매수] 지정가, 수량={buy_qty}주, 주문가격={current_price:,}원")
 
-            # 최유리지정가 매수 주문
-            order_price = max_price if is_virtual else 0
-            buy_order = kis.stock(target_code).buy(price=order_price, qty=buy_qty, condition='best', execution=None)
+            # 지정가 매수 주문
+            buy_order = kis.stock(target_code).buy(price=current_price, qty=buy_qty, condition=None, execution=None)
 
-            print(f"[매수 성공] 주문번호: {buy_order.number if hasattr(buy_order, 'number') else 'N/A'}")
+            logger.info(f"[매수 성공] 주문번호: {buy_order.number if hasattr(buy_order, 'number') else 'N/A'}")
             results['buy_order'] = {
                 'code': target_code,
                 'name': target_name,
@@ -696,7 +724,7 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
             no_retry_keywords = ['잔고', '부족', '수량', '불가', '영업일', '장마감', '장종료', '장시작전', '매매거래정지']
 
             if any(keyword in error_msg for keyword in no_retry_keywords):
-                print(f"[매수 실패] {e} (재시도 불가)")
+                logger.error(f"[매수 실패] {e} (재시도 불가)")
                 results['buy_order'] = {
                     'code': target_code,
                     'name': target_name,
@@ -707,7 +735,7 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
                 break
 
             if attempt == MAX_RETRIES:
-                print(f"[매수 실패] {e} (최대 재시도 초과)")
+                logger.error(f"[매수 실패] {e} (최대 재시도 초과)")
                 results['buy_order'] = {
                     'code': target_code,
                     'name': target_name,
@@ -730,7 +758,7 @@ def main():
     args = parser.parse_args()
 
     # 로거 초기화
-    logger = setup_logger()
+    setup_logger()
     logger.info("="*80)
     logger.info("GEM(Global Equities Momentum) 전략 시작")
     logger.info("="*80)
@@ -819,25 +847,28 @@ def main():
         # 투자액 결정
         if args.investment is None:
             if args.virtual:
-                print("\n[오류] 모의투자 모드에서는 --investment 옵션으로 투자액을 지정해야 합니다.")
-                print("예: python buy_gem.py --execute --secret secret.json --virtual secret_virtual.json --investment 10000000")
+                logger.error("\n[오류] 모의투자 모드에서는 --investment 옵션으로 투자액을 지정해야 합니다.")
+                logger.info("예: python buy_gem.py --execute --secret secret.json --virtual secret_virtual.json --investment 10000000")
                 return
 
             # 실전투자 모드에서 총평가금액 조회
-            print("\n투자액 설정: 현재 총평가금액 사용 (실전투자 모드)")
-            account = kis.account()
-            balance = account.balance()
-            total_investment = int(balance.total)
-            print(f"현재 총평가금액: {total_investment:,}원")
+            logger.info("\n투자액 설정: 현재 총평가금액 사용 (실전투자 모드)")
+            total_investment = get_total_balance(kis)
+
+            if total_investment is None:
+                logger.error("\n❌ 총평가금액 조회 실패. 프로그램을 종료합니다.")
+                return
+
+            logger.info(f"현재 총평가금액: {total_investment:,}원")
         else:
             total_investment = args.investment
             mode_str = "모의투자" if args.virtual else "실전투자"
-            print(f"\n투자액 설정: 수동 지정 ({total_investment:,}원) - {mode_str} 모드")
+            logger.info(f"\n투자액 설정: 수동 지정 ({total_investment:,}원) - {mode_str} 모드")
 
         # 리밸런싱 실행
-        print(f"\n{'='*80}")
-        print(f"⚙️  리밸런싱 실행")
-        print(f"{'='*80}")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"⚙️  리밸런싱 실행")
+        logger.info(f"{'='*80}")
 
         rebalance_results = execute_rebalancing(
             kis=kis,
@@ -848,24 +879,24 @@ def main():
         )
 
         # 결과 출력
-        print(f"\n{'='*80}")
-        print(f"✅ 리밸런싱 완료")
-        print(f"{'='*80}")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"✅ 리밸런싱 완료")
+        logger.info(f"{'='*80}")
 
         if rebalance_results['sell_orders']:
-            print(f"\n매도 주문: {len(rebalance_results['sell_orders'])}건")
+            logger.info(f"\n매도 주문: {len(rebalance_results['sell_orders'])}건")
             for order in rebalance_results['sell_orders']:
                 status_mark = "✅" if order['status'] == 'success' else "❌"
-                print(f"  {status_mark} {order['code']} ({order['name']}): {order['qty']}주")
+                logger.info(f"  {status_mark} {order['code']} ({order['name']}): {order['qty']}주")
 
         if rebalance_results['buy_order']:
             buy_order = rebalance_results['buy_order']
             status_mark = "✅" if buy_order['status'] == 'success' else "❌"
-            print(f"\n매수 주문:")
-            print(f"  {status_mark} {buy_order['code']} ({buy_order['name']}): {buy_order['qty']}주")
+            logger.info(f"\n매수 주문:")
+            logger.info(f"  {status_mark} {buy_order['code']} ({buy_order['name']}): {buy_order['qty']}주")
 
         if rebalance_results['success']:
-            print(f"\n🎉 리밸런싱 성공!")
+            logger.info(f"\n🎉 리밸런싱 성공!")
             # 실행 기록 저장
             record_execution(
                 selected_code=best_stock['stock_code'],
@@ -873,7 +904,7 @@ def main():
                 success=True
             )
         else:
-            print(f"\n⚠️  일부 주문이 실패했습니다. 결과를 확인하세요.")
+            logger.warning(f"\n⚠️  일부 주문이 실패했습니다. 결과를 확인하세요.")
             # 실패도 기록 (성공하지 않음으로 표시)
             record_execution(
                 selected_code=best_stock['stock_code'],
