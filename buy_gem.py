@@ -572,6 +572,48 @@ def get_total_balance(kis):
     return None
 
 
+def get_available_cash(kis):
+    """
+    예수금 조회 (재시도 로직 포함)
+
+    Args:
+        kis: PyKis 객체
+
+    Returns:
+        int: 예수금 (KRW)
+    """
+    # 재시도 로직
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            account = kis.account()
+            balance = account.balance()
+
+            # 예수금 조회
+            if 'KRW' in balance.deposits:
+                return int(balance.deposits.get('KRW').amount)
+            else:
+                logger.warning("예수금 정보(KRW)가 없습니다.")
+                return 0
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            # 네트워크 관련 오류 체크
+            network_errors = ['connection', 'timeout', 'remote', 'disconnect']
+            is_network_error = any(keyword in error_msg for keyword in network_errors)
+
+            if is_network_error and attempt < MAX_RETRIES:
+                logger.warning(f"[재시도 {attempt}/{MAX_RETRIES}] 예수금 조회 오류: {e}")
+                time.sleep(RETRY_DELAY * attempt)
+            else:
+                if attempt == MAX_RETRIES:
+                    logger.error(f"예수금 조회 최대 재시도 초과: {e}")
+                else:
+                    logger.warning(f"예수금 조회 실패: {e}")
+                return None
+
+    return None
+
+
 def execute_rebalancing(kis, target_code, target_name, total_investment, is_virtual=False):
     """
     리밸런싱 실행: 기존 종목 전량 매도 후 목표 종목 전량 매수
@@ -664,15 +706,12 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
     # 3. 목표 종목이 이미 보유 중인지 확인
     target_holding = holdings.get(target_code, {}).get('qty', 0)
 
-    if target_holding > 0:
-        logger.info(f"\n[알림] 목표 종목 {target_code} ({target_name})을 이미 {target_holding}주 보유 중입니다.")
-        logger.info(f"[알림] 기존 보유 종목을 유지합니다.")
-        results['success'] = True
-        return results
-
-    # 4. 목표 종목 매수
+    # 4. 목표 종목 매수 (또는 추가 매수)
     logger.info(f"\n{'='*80}")
-    logger.info(f"[2단계] 목표 종목 전액 매수")
+    if target_holding > 0:
+        logger.info(f"[2단계] 목표 종목 추가 매수 (기존 보유: {target_holding}주)")
+    else:
+        logger.info(f"[2단계] 목표 종목 전액 매수")
     logger.info(f"{'='*80}")
 
     # 현재가 조회
@@ -682,8 +721,30 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
         logger.error(f"❌ 현재가 조회 실패: {target_code}")
         return results
 
+    # 매수 금액 결정
+    if target_holding > 0:
+        # 이미 보유 중이면 예수금으로 추가 매수
+        available_cash = get_available_cash(kis)
+
+        if available_cash is None:
+            logger.error(f"❌ 예수금 조회 실패")
+            return results
+
+        if available_cash <= 0:
+            logger.info(f"\n[알림] 목표 종목 {target_code} ({target_name})을 이미 {target_holding}주 보유 중입니다.")
+            logger.info(f"[알림] 잔여 예수금이 없어 추가 매수하지 않습니다.")
+            results['success'] = True
+            return results
+
+        logger.info(f"\n[알림] 목표 종목 {target_code} ({target_name})을 이미 {target_holding}주 보유 중입니다.")
+        logger.info(f"[알림] 잔여 예수금 {available_cash:,}원으로 추가 매수합니다.")
+        investment_amount = available_cash
+    else:
+        # 보유하지 않으면 전액 투자
+        investment_amount = total_investment
+
     # 매수 수량 계산 (버퍼 적용으로 가격 변동 대비)
-    safe_investment = int(total_investment * BUFFER_RATIO)
+    safe_investment = int(investment_amount * BUFFER_RATIO)
     buy_qty = int(safe_investment / current_price)
 
     if buy_qty <= 0:
@@ -692,7 +753,10 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
 
     logger.info(f"\n[매수] {target_code} ({target_name})")
     logger.info(f"  현재가: {current_price:,}원")
-    logger.info(f"  총투자액: {total_investment:,}원")
+    if target_holding > 0:
+        logger.info(f"  예수금: {investment_amount:,}원")
+    else:
+        logger.info(f"  총투자액: {investment_amount:,}원")
     logger.info(f"  실투자액: {safe_investment:,}원 (버퍼 {int((1-BUFFER_RATIO)*100)}% 적용)")
     logger.info(f"  매수수량: {buy_qty}주")
 
