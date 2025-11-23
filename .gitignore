@@ -1,4 +1,52 @@
+# 민감 정보
+secret.json
+secret_virtual.json
+*.json
+
+# 데이터 및 로그
 /data/
 /logs/
 /portfolio/
-*.json
+
+# 실행 기록
+fip_execution_log.json
+gem_execution_log.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 테스트 파일
+test.py
+test2.py
+test_*.py
