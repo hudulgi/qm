@@ -901,6 +901,16 @@ def main():
     # 최고 수익률 종목 선택
     best_stock = results[0]
 
+    # 절대 모멘텀 필터: 최고 종목도 마이너스면 투자 안함
+    if best_stock['total_return'] < 0:
+        print(f"\n{'='*80}")
+        print(f"⚠️  모든 종목이 마이너스 수익률")
+        print(f"   최고 수익률: {best_stock['stock_code']} ({best_stock['stock_name']}) {best_stock['total_return']:.2f}%")
+        print(f"   현금 보유를 권장합니다. 투자를 진행하지 않습니다.")
+        print(f"{'='*80}")
+        logger.warning("모든 종목이 마이너스 수익률입니다. 투자를 중단합니다.")
+        return
+
     print(f"\n{'='*80}")
     print(f"🎯 선택 종목: {best_stock['stock_code']} ({best_stock['stock_name']})")
     print(f"   12개월 토탈리턴: {best_stock['total_return']:.2f}%")
