@@ -126,6 +126,41 @@ def initialize_kis(secret_file='secret.json', virtual_file=None):
         return PyKis(secret_file, keep_token=True)
 
 
+def load_strategy_config(strategy_file):
+    """
+    전략 설정 파일 로드
+
+    Args:
+        strategy_file: 전략 설정 JSON 파일 경로
+
+    Returns:
+        dict: 전략 설정 데이터 (name, target_codes, description)
+
+    Raises:
+        FileNotFoundError: 파일이 존재하지 않을 때
+        ValueError: JSON 형식이 잘못되었거나 필수 필드가 없을 때
+    """
+    if not os.path.exists(strategy_file):
+        raise FileNotFoundError(f"전략 설정 파일을 찾을 수 없습니다: {strategy_file}")
+
+    try:
+        with open(strategy_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        # 필수 필드 검증
+        if "name" not in config:
+            raise ValueError("전략 설정에 'name' 필드가 없습니다")
+        if "target_codes" not in config:
+            raise ValueError("전략 설정에 'target_codes' 필드가 없습니다")
+        if not isinstance(config["target_codes"], list) or len(config["target_codes"]) == 0:
+            raise ValueError("'target_codes'는 비어있지 않은 리스트여야 합니다")
+
+        return config
+
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON 형식 오류: {e}")
+
+
 def load_execution_log():
     """
     실행 기록 파일 로드
@@ -159,9 +194,12 @@ def save_execution_log(log_data):
         logger.warning(f"실행 기록 저장 실패: {e}")
 
 
-def check_monthly_execution():
+def check_monthly_execution(strategy_name):
     """
-    이번 달에 이미 실행되었는지 확인
+    이번 달에 해당 전략이 이미 실행되었는지 확인
+
+    Args:
+        strategy_name: 전략 이름
 
     Returns:
         bool: True면 이미 실행됨, False면 실행 안됨
@@ -170,21 +208,24 @@ def check_monthly_execution():
     current_month = datetime.now().strftime("%Y-%m")
 
     for execution in log_data.get("executions", []):
-        if execution.get("month") == current_month and execution.get("success"):
-            logger.warning(f"⚠️  이번 달({current_month})에 이미 실행되었습니다.")
+        if (execution.get("month") == current_month and
+            execution.get("success") and
+            execution.get("strategy_name") == strategy_name):
+            logger.warning(f"⚠️  이번 달({current_month})에 '{strategy_name}' 전략이 이미 실행되었습니다.")
             logger.info(f"   실행일: {execution.get('date')}")
             logger.info(f"   선택 종목: {execution.get('selected_code')} ({execution.get('selected_name')})")
             return True
 
-    logger.info(f"✅ 이번 달({current_month}) 첫 실행입니다.")
+    logger.info(f"✅ 이번 달({current_month}) '{strategy_name}' 전략 첫 실행입니다.")
     return False
 
 
-def record_execution(selected_code, selected_name, success):
+def record_execution(strategy_name, selected_code, selected_name, success):
     """
     실행 기록 추가
 
     Args:
+        strategy_name: 전략 이름
         selected_code: 선택된 종목 코드
         selected_name: 선택된 종목명
         success: 실행 성공 여부
@@ -194,6 +235,7 @@ def record_execution(selected_code, selected_name, success):
     execution_record = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "month": datetime.now().strftime("%Y-%m"),
+        "strategy_name": strategy_name,
         "selected_code": selected_code,
         "selected_name": selected_name,
         "success": success,
@@ -817,6 +859,7 @@ def main():
     parser.add_argument('--execute', action='store_true', help='실제 주문 실행 (기본: 분석만 수행)')
     parser.add_argument('--secret', required=True, help='실전 계좌 secret 파일 경로 (필수)')
     parser.add_argument('--virtual', default=None, help='모의투자 계좌 secret 파일 경로 (옵션)')
+    parser.add_argument('--strategy', required=True, help='전략 설정 JSON 파일 경로 (필수, 예: strategy_kodex.json)')
     parser.add_argument('--investment', type=int, default=None, help='총 투자액 (원 단위, 기본: 현재 총평가금액 사용)')
     parser.add_argument('--force', action='store_true', help='이번 달 실행 기록 무시하고 강제 실행')
     args = parser.parse_args()
@@ -827,9 +870,21 @@ def main():
     logger.info("GEM(Global Equities Momentum) 전략 시작")
     logger.info("="*80)
 
+    # 전략 설정 로드
+    try:
+        strategy_config = load_strategy_config(args.strategy)
+        strategy_name = strategy_config['name']
+        target_codes = strategy_config['target_codes']
+        logger.info(f"전략 설정 로드 완료: {strategy_name}")
+        logger.info(f"  설명: {strategy_config.get('description', 'N/A')}")
+        logger.info(f"  대상 종목: {len(target_codes)}개")
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(f"❌ 전략 설정 로드 실패: {e}")
+        return
+
     # 실행 기록 확인 (--execute 모드이고 --force가 아닐 때만)
     if args.execute and not args.force:
-        if check_monthly_execution():
+        if check_monthly_execution(strategy_name):
             logger.warning("이미 실행되었으므로 종료합니다.")
             logger.info("강제 실행하려면 --force 옵션을 사용하세요.")
             return
@@ -838,9 +893,6 @@ def main():
     logger.info("🔐 인증 중...")
     kis = initialize_kis(args.secret, args.virtual)
     logger.info("인증 완료")
-
-    # 대상 종목 코드 (수동 지정, 나중에 파라미터로 받도록 수정 가능)
-    target_codes = ["069500", "379800", "423160"]
 
     # 종목명 조회
     logger.info("="*80)
@@ -973,6 +1025,7 @@ def main():
             logger.info(f"\n🎉 리밸런싱 성공!")
             # 실행 기록 저장
             record_execution(
+                strategy_name=strategy_name,
                 selected_code=best_stock['stock_code'],
                 selected_name=best_stock['stock_name'],
                 success=True
@@ -981,6 +1034,7 @@ def main():
             logger.warning(f"\n⚠️  일부 주문이 실패했습니다. 결과를 확인하세요.")
             # 실패도 기록 (성공하지 않음으로 표시)
             record_execution(
+                strategy_name=strategy_name,
                 selected_code=best_stock['stock_code'],
                 selected_name=best_stock['stock_name'],
                 success=False

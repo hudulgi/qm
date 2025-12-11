@@ -328,31 +328,54 @@ python buy_fip.py --secret secret.json --execute --force
 - **전략명**: GEM (Global Equities Momentum)
 - **투자 방식**: 12개월 토탈리턴이 가장 높은 종목에 전액 투자
 - **토탈리턴**: 가격 변동 수익률 + 배당 수익률
-- **실행 제한**: 월 1회
+- **실행 제한**: 전략별 월 1회 (같은 달에 여러 전략 실행 가능)
 
 ### 주요 기능
-1. **12개월 토탈리턴 분석**:
+1. **전략 설정 파일 시스템**:
+   - JSON 파일로 전략 관리
+   - 여러 전략을 독립적으로 실행 가능
+   - 전략별 실행 기록 관리
+2. **12개월 토탈리턴 분석**:
    - NAV 가격 변동 수익률 계산
    - 배당금 수익률 포함
-   - 3개 ETF 비교 분석
-2. **자동 리밸런싱**:
+   - 전략 설정 파일의 종목들 비교 분석
+3. **자동 리밸런싱**:
    - 기존 보유 종목 전량 매도
    - 최고 수익률 종목 전액 매수
    - 이미 보유 중인 경우 예수금으로 추가 매수
-3. **매수 방식**: 지정가 매수 (현재가)
-4. **매도 방식**: 시장가 매도
+4. **매수 방식**: 지정가 매수 (현재가)
+5. **매도 방식**: 시장가 매도
 
-### 대상 종목 (코드 내 하드코딩)
-```python
-target_codes = ["069500", "379800", "423160"]
-# 069500: KODEX 200
-# 379800: KODEX 미국S&P500
-# 423160: KODEX KOFR금리액티브(합성)
+### 전략 설정 파일
+
+각 전략은 JSON 파일로 정의합니다:
+
+#### strategy_kodex.json 예시
+```json
+{
+  "name": "KODEX 전략",
+  "target_codes": ["069500", "379810", "153130"],
+  "description": "KODEX 200, KODEX 미국S&P500TR, KODEX 미국나스닥100TR"
+}
 ```
+
+#### strategy_tiger.json 예시
+```json
+{
+  "name": "TIGER 전략",
+  "target_codes": ["292190", "379810", "153130"],
+  "description": "TIGER 200, KODEX 미국S&P500TR, KODEX 미국나스닥100TR"
+}
+```
+
+**필수 필드**:
+- `name`: 전략 이름 (실행 기록 구분에 사용)
+- `target_codes`: 비교할 종목 코드 리스트
+- `description`: 전략 설명 (옵션)
 
 > ⚠️ **중요**: 위 종목들은 **코드 동작 확인을 위한 예시**입니다.
 > - 특정 종목 추천이 아니며, 실제 투자 시 본인의 투자 성향과 목표에 맞는 종목으로 변경해야 합니다.
-> - GEM 전략에 적합한 ETF를 직접 선택하여 `buy_gem.py` 파일의 `target_codes` 변수를 수정하세요.
+> - GEM 전략에 적합한 ETF를 직접 선택하여 전략 설정 파일을 생성하세요.
 > - 예: 국내/해외 지수 추종 ETF, 섹터별 ETF 등
 
 ### 명령줄 옵션
@@ -360,6 +383,7 @@ target_codes = ["069500", "379800", "423160"]
 | 옵션 | 필수 | 설명 | 예시 |
 |------|------|------|------|
 | `--secret` | ✅ | 실전 계좌 secret 파일 경로 | `--secret secret.json` |
+| `--strategy` | ✅ | 전략 설정 JSON 파일 경로 | `--strategy strategy_kodex.json` |
 | `--execute` | ❌ | 실제 주문 실행 (없으면 분석만 수행) | `--execute` |
 | `--virtual` | ❌ | 모의투자 계좌 secret 파일 경로 | `--virtual secret_virtual.json` |
 | `--investment` | ❌ | 총 투자액 (원 단위, 기본: 현재 총평가금액) | `--investment 10000000` |
@@ -367,24 +391,33 @@ target_codes = ["069500", "379800", "423160"]
 
 ### 사용 예시
 
-#### 1. 분석만 수행 (주문 실행 안함)
+#### 1. KODEX 전략 분석만 수행 (주문 실행 안함)
 ```bash
-python buy_gem.py --secret secret.json
+python buy_gem.py --secret secret.json --strategy strategy_kodex.json
 ```
 
-#### 2. 실전투자 계좌에서 실제 주문 실행 (현재 총평가금액으로 투자)
+#### 2. KODEX 전략 실전투자 실행 (현재 총평가금액으로 투자)
 ```bash
-python buy_gem.py --secret secret.json --execute
+python buy_gem.py --secret secret.json --strategy strategy_kodex.json --execute
 ```
 
-#### 3. 모의투자 계좌에서 1천만원으로 테스트
+#### 3. TIGER 전략 모의투자로 테스트 (1천만원)
 ```bash
-python buy_gem.py --secret secret.json --virtual secret_virtual.json --investment 10000000 --execute
+python buy_gem.py --secret secret.json --strategy strategy_tiger.json --virtual secret_virtual.json --investment 10000000 --execute
 ```
 
 #### 4. 강제 실행 (월 제한 무시)
 ```bash
-python buy_gem.py --secret secret.json --execute --force
+python buy_gem.py --secret secret.json --strategy strategy_kodex.json --execute --force
+```
+
+#### 5. 같은 달에 여러 전략 실행
+```bash
+# KODEX 전략 실행
+python buy_gem.py --secret secret.json --strategy strategy_kodex.json --execute
+
+# TIGER 전략도 실행 가능 (전략별로 구분되어 관리됨)
+python buy_gem.py --secret secret.json --strategy strategy_tiger.json --execute
 ```
 
 ### 출력 예시
@@ -461,8 +494,11 @@ GEM(Global Equities Momentum) 전략 시작
 # 매월 첫 거래일 09시 05분에 FIP 전략 리밸런싱 실행
 5 9 1 3,6,9,12 * cd /path/to/qm && python buy_fip.py --secret secret.json --execute
 
-# 매월 1일 09시 10분에 GEM 전략 실행
-10 9 1 * * cd /path/to/qm && python buy_gem.py --secret secret.json --execute
+# 매월 1일 09시 10분에 KODEX 전략 실행
+10 9 1 * * cd /path/to/qm && python buy_gem.py --secret secret.json --strategy strategy_kodex.json --execute
+
+# 매월 1일 09시 15분에 TIGER 전략 실행
+15 9 1 * * cd /path/to/qm && python buy_gem.py --secret secret.json --strategy strategy_tiger.json --execute
 ```
 
 ### 수동 실행 워크플로우

@@ -1,0 +1,5 @@
+{
+  "name": "TIGER 전략",
+  "target_codes": ["292190", "379810", "153130"],
+  "description": "TIGER 200, KODEX 미국S&P500TR, KODEX 미국나스닥100TR"
+}
