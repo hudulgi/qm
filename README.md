@@ -355,7 +355,7 @@ python buy_fip.py --secret secret.json --execute --force
 {
   "name": "KODEX 전략",
   "target_codes": ["069500", "379810", "153130"],
-  "description": "KODEX 200, KODEX 미국S&P500TR, KODEX 미국나스닥100TR"
+  "description": "KODEX 200, KODEX 미국나스닥100, KODEX 단기채권"
 }
 ```
 
@@ -364,7 +364,7 @@ python buy_fip.py --secret secret.json --execute --force
 {
   "name": "TIGER 전략",
   "target_codes": ["292190", "379810", "153130"],
-  "description": "TIGER 200, KODEX 미국S&P500TR, KODEX 미국나스닥100TR"
+  "description": "KODEX KRX300, KODEX 미국나스닥100, KODEX 단기채권"
 }
 ```
 
