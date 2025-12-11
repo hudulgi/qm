@@ -350,19 +350,19 @@ python buy_fip.py --secret secret.json --execute --force
 
 각 전략은 JSON 파일로 정의합니다:
 
-#### strategy_kodex.json 예시
+#### strategy_kospi200.json 예시
 ```json
 {
-  "name": "KODEX 전략",
+  "name": "KOSPI200 전략",
   "target_codes": ["069500", "379810", "153130"],
   "description": "KODEX 200, KODEX 미국나스닥100, KODEX 단기채권"
 }
 ```
 
-#### strategy_tiger.json 예시
+#### strategy_krx300.json 예시
 ```json
 {
-  "name": "TIGER 전략",
+  "name": "KRX300 전략",
   "target_codes": ["292190", "379810", "153130"],
   "description": "KODEX KRX300, KODEX 미국나스닥100, KODEX 단기채권"
 }
@@ -383,7 +383,7 @@ python buy_fip.py --secret secret.json --execute --force
 | 옵션 | 필수 | 설명 | 예시 |
 |------|------|------|------|
 | `--secret` | ✅ | 실전 계좌 secret 파일 경로 | `--secret secret.json` |
-| `--strategy` | ✅ | 전략 설정 JSON 파일 경로 | `--strategy strategy_kodex.json` |
+| `--strategy` | ✅ | 전략 설정 JSON 파일 경로 | `--strategy strategy_kospi200.json` |
 | `--execute` | ❌ | 실제 주문 실행 (없으면 분석만 수행) | `--execute` |
 | `--virtual` | ❌ | 모의투자 계좌 secret 파일 경로 | `--virtual secret_virtual.json` |
 | `--investment` | ❌ | 총 투자액 (원 단위, 기본: 현재 총평가금액) | `--investment 10000000` |
@@ -391,33 +391,33 @@ python buy_fip.py --secret secret.json --execute --force
 
 ### 사용 예시
 
-#### 1. KODEX 전략 분석만 수행 (주문 실행 안함)
+#### 1. KOSPI200 전략 분석만 수행 (주문 실행 안함)
 ```bash
-python buy_gem.py --secret secret.json --strategy strategy_kodex.json
+python buy_gem.py --secret secret.json --strategy strategy_kospi200.json
 ```
 
-#### 2. KODEX 전략 실전투자 실행 (현재 총평가금액으로 투자)
+#### 2. KOSPI200 전략 실전투자 실행 (현재 총평가금액으로 투자)
 ```bash
-python buy_gem.py --secret secret.json --strategy strategy_kodex.json --execute
+python buy_gem.py --secret secret.json --strategy strategy_kospi200.json --execute
 ```
 
-#### 3. TIGER 전략 모의투자로 테스트 (1천만원)
+#### 3. KRX300 전략 모의투자로 테스트 (1천만원)
 ```bash
-python buy_gem.py --secret secret.json --strategy strategy_tiger.json --virtual secret_virtual.json --investment 10000000 --execute
+python buy_gem.py --secret secret.json --strategy strategy_krx300.json --virtual secret_virtual.json --investment 10000000 --execute
 ```
 
 #### 4. 강제 실행 (월 제한 무시)
 ```bash
-python buy_gem.py --secret secret.json --strategy strategy_kodex.json --execute --force
+python buy_gem.py --secret secret.json --strategy strategy_kospi200.json --execute --force
 ```
 
 #### 5. 같은 달에 여러 전략 실행
 ```bash
-# KODEX 전략 실행
-python buy_gem.py --secret secret.json --strategy strategy_kodex.json --execute
+# KOSPI200 전략 실행
+python buy_gem.py --secret secret.json --strategy strategy_kospi200.json --execute
 
-# TIGER 전략도 실행 가능 (전략별로 구분되어 관리됨)
-python buy_gem.py --secret secret.json --strategy strategy_tiger.json --execute
+# KRX300 전략도 실행 가능 (전략별로 구분되어 관리됨)
+python buy_gem.py --secret secret.json --strategy strategy_krx300.json --execute
 ```
 
 ### 출력 예시
@@ -494,11 +494,11 @@ GEM(Global Equities Momentum) 전략 시작
 # 매월 첫 거래일 09시 05분에 FIP 전략 리밸런싱 실행
 5 9 1 3,6,9,12 * cd /path/to/qm && python buy_fip.py --secret secret.json --execute
 
-# 매월 1일 09시 10분에 KODEX 전략 실행
-10 9 1 * * cd /path/to/qm && python buy_gem.py --secret secret.json --strategy strategy_kodex.json --execute
+# 매월 1일 09시 10분에 KOSPI200 전략 실행
+10 9 1 * * cd /path/to/qm && python buy_gem.py --secret secret.json --strategy strategy_kospi200.json --execute
 
-# 매월 1일 09시 15분에 TIGER 전략 실행
-15 9 1 * * cd /path/to/qm && python buy_gem.py --secret secret.json --strategy strategy_tiger.json --execute
+# 매월 1일 09시 15분에 KRX300 전략 실행
+15 9 1 * * cd /path/to/qm && python buy_gem.py --secret secret.json --strategy strategy_krx300.json --execute
 ```
 
 ### 수동 실행 워크플로우

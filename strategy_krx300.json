@@ -1,5 +1,5 @@
 {
-  "name": "TIGER 전략",
+  "name": "KRX300 전략",
   "target_codes": ["292190", "379810", "153130"],
   "description": "KODEX KRX300, KODEX 미국나스닥100, KODEX 단기채권"
 }
