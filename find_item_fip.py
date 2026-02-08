@@ -14,6 +14,7 @@ import logging
 import time
 
 from pykis import PyKis, KisStock, KisChart
+from utils.secret_loader import resolve_secret
 
 # 로거 설정
 script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
@@ -526,6 +527,9 @@ def main():
     parser = argparse.ArgumentParser(description='모멘텀 및 FIP 기반 포트폴리오 종목 선정')
     parser.add_argument('--secret', required=True, help='KIS API secret 파일 경로 (필수)')
     args = parser.parse_args()
+
+    # 시크릿 파일 경로 resolve (GCP 모드 지원)
+    args.secret = resolve_secret(args.secret)
 
     # PyKis 초기화
     logger.info(f"KIS API 초기화: {args.secret}")

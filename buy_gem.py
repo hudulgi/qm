@@ -13,6 +13,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from pykis import PyKis, KisAuth, KisQuote
+from utils.secret_loader import resolve_secret
 
 
 # 투자 설정
@@ -863,6 +864,11 @@ def main():
     parser.add_argument('--investment', type=int, default=None, help='총 투자액 (원 단위, 기본: 현재 총평가금액 사용)')
     parser.add_argument('--force', action='store_true', help='이번 달 실행 기록 무시하고 강제 실행')
     args = parser.parse_args()
+
+    # 시크릿 파일 경로 resolve (GCP 모드 지원)
+    args.secret = resolve_secret(args.secret)
+    if args.virtual:
+        args.virtual = resolve_secret(args.virtual)
 
     # 로거 초기화
     setup_logger()
