@@ -9,6 +9,7 @@ import sys
 from datetime import datetime
 from pykis import PyKis
 from utils.secret_loader import resolve_secret
+from utils.balance import fetch_domestic_balance
 
 # 투자 설정
 MAX_RETRIES = 3  # 최대 재시도 횟수
@@ -282,21 +283,12 @@ def get_current_holdings(kis):
     """
     try:
         holdings = {}
-        account = kis.account()
-        balance = account.balance()
+        account_number, stocks, summary = fetch_domestic_balance(kis, logger)
 
-        # balance 객체에서 보유 종목 정보 추출
-        if hasattr(balance, 'stocks') and balance.stocks:
-            for stock in balance.stocks:
-                # symbol 또는 code 속성 사용
-                code = getattr(stock, 'symbol', getattr(stock, 'code', None))
-                if code:
-                    # 종목코드 6자리 0 패딩
-                    code = str(code).zfill(6)
-                    qty = int(stock.qty)
-                    name = getattr(stock, 'name', '(이름없음)')
-                    if qty > 0:
-                        holdings[code] = {'qty': qty, 'name': name}
+        for stock in stocks:
+            code = str(stock.symbol).zfill(6)
+            if stock.quantity > 0:
+                holdings[code] = {'qty': stock.quantity, 'name': stock.name}
 
         logger.info(f"\n현재 보유 종목 수: {len(holdings)}개")
         if holdings:
@@ -741,9 +733,8 @@ def main():
         # 실전투자 모드에서만 현재 총평가금액 조회
         logger.info("\n투자액 설정: 현재 총평가금액 사용 (실전투자 모드)")
         kis = initialize_kis(args.secret, args.virtual)
-        account = kis.account()
-        balance = account.balance()
-        total_investment = int(balance.total)
+        account_number, stocks, summary = fetch_domestic_balance(kis, logger)
+        total_investment = summary.get("total", 0)
         logger.info(f"현재 총평가금액: {total_investment:,}원")
     else:
         # 지정된 투자액 사용

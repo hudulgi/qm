@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta
 from pykis import PyKis, KisAuth, KisQuote
 from utils.secret_loader import resolve_secret
+from utils.balance import fetch_domestic_balance
 
 
 # 투자 설정
@@ -488,19 +489,12 @@ def get_current_holdings(kis):
     """
     try:
         holdings = {}
-        account = kis.account()
-        balance = account.balance()
+        account_number, stocks, summary = fetch_domestic_balance(kis, logger)
 
-        # balance 객체에서 보유 종목 정보 추출
-        if hasattr(balance, 'stocks') and balance.stocks:
-            for stock in balance.stocks:
-                code = getattr(stock, 'symbol', getattr(stock, 'code', None))
-                if code:
-                    code = str(code).zfill(6)
-                    qty = int(stock.qty)
-                    name = getattr(stock, 'name', '(이름없음)')
-                    if qty > 0:
-                        holdings[code] = {'qty': qty, 'name': name}
+        for stock in stocks:
+            code = str(stock.symbol).zfill(6)
+            if stock.quantity > 0:
+                holdings[code] = {'qty': stock.quantity, 'name': stock.name}
 
         return holdings
 
@@ -593,9 +587,8 @@ def get_total_balance(kis):
     # 재시도 로직
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            account = kis.account()
-            balance = account.balance()
-            return int(balance.total)
+            account_number, stocks, summary = fetch_domestic_balance(kis, logger)
+            return summary.get("total", 0)
         except Exception as e:
             error_msg = str(e).lower()
             # 네트워크 관련 오류 체크
@@ -608,8 +601,6 @@ def get_total_balance(kis):
             else:
                 if attempt == MAX_RETRIES:
                     logger.error(f"총평가금액 조회 최대 재시도 초과: {e}")
-                else:
-                    logger.warning(f"총평가금액 조회 실패: {e}")
                 return None
 
     return None
@@ -628,15 +619,8 @@ def get_available_cash(kis):
     # 재시도 로직
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            account = kis.account()
-            balance = account.balance()
-
-            # 예수금 조회
-            if 'KRW' in balance.deposits:
-                return int(balance.deposits.get('KRW').amount)
-            else:
-                logger.warning("예수금 정보(KRW)가 없습니다.")
-                return 0
+            account_number, stocks, summary = fetch_domestic_balance(kis, logger)
+            return summary.get("available_cash", 0)
 
         except Exception as e:
             error_msg = str(e).lower()
@@ -650,8 +634,6 @@ def get_available_cash(kis):
             else:
                 if attempt == MAX_RETRIES:
                     logger.error(f"예수금 조회 최대 재시도 초과: {e}")
-                else:
-                    logger.warning(f"예수금 조회 실패: {e}")
                 return None
 
     return None
