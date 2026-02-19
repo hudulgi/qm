@@ -323,10 +323,13 @@ def get_last_trading_date():
     return today.strftime("%Y-%m-%d")
 
 
+API_CALL_INTERVAL = 0.5  # 종목별 API 호출 간격 (초)
+
+
 def get_chart_data(code, start_date, end_date):
     """KIS API에서 차트 데이터를 직접 가져오기"""
     max_retries = 3
-    retry_delay = 0.5
+    retry_delay = 1.5
 
     for attempt in range(max_retries):
         try:
@@ -446,7 +449,7 @@ def calculate_momentum_and_fip_for_period(code, start_date, end_date):
         return None
 
 
-def select_portfolio_stocks(stock_codes, end_date, top_momentum=TOP_MOMENTUM_COUNT, bottom_fip=BOTTOM_FIP_COUNT):
+def select_portfolio_stocks(stock_codes, end_date, top_momentum=TOP_MOMENTUM_COUNT, bottom_fip=BOTTOM_FIP_COUNT, skip_codes=None):
     """
     포트폴리오 종목 선정: 수정 모멘텀 상위 N개 중 FIP 하위 M개
 
@@ -455,11 +458,18 @@ def select_portfolio_stocks(stock_codes, end_date, top_momentum=TOP_MOMENTUM_COU
         end_date: 기준일 (YYYY-MM-DD)
         top_momentum: 모멘텀 상위 종목 수 (기본값: TOP_MOMENTUM_COUNT)
         bottom_fip: FIP 하위 종목 수 (기본값: BOTTOM_FIP_COUNT)
+        skip_codes: 제외할 종목 코드 리스트 (기본값: None)
 
     Returns:
         list: 선정된 종목 정보 리스트
     """
     logger.info(f"\n{end_date} 기준 포트폴리오 종목 선정 중...")
+
+    if skip_codes:
+        skip_set = set(skip_codes)
+        before = len(stock_codes)
+        stock_codes = [c for c in stock_codes if c not in skip_set]
+        logger.info(f"스킵 종목 {len(skip_set)}개 제외: {sorted(skip_set)} ({before} → {len(stock_codes)}개)")
 
     results = []
     processed = 0
@@ -474,6 +484,8 @@ def select_portfolio_stocks(stock_codes, end_date, top_momentum=TOP_MOMENTUM_COU
         result = calculate_momentum_and_fip_for_period(code, momentum_start, end_date)
         if result is not None:
             results.append(result)
+
+        time.sleep(API_CALL_INTERVAL)  # API 유량 제한 방지
 
     if len(results) < bottom_fip:
         logger.warning(f"데이터 부족 - {len(results)}개 종목만 분석됨")
@@ -526,6 +538,7 @@ def main():
     # 명령줄 인수 파싱
     parser = argparse.ArgumentParser(description='모멘텀 및 FIP 기반 포트폴리오 종목 선정')
     parser.add_argument('--secret', required=True, help='KIS API secret 파일 경로 (필수)')
+    parser.add_argument('--skip', nargs='+', default=[], metavar='CODE', help='제외할 종목 코드 (예: --skip 033500 005930)')
     args = parser.parse_args()
 
     # 시크릿 파일 경로 resolve (GCP 모드 지원)
@@ -557,7 +570,8 @@ def main():
         stock_codes=momentum_codes,
         end_date=end_date,
         top_momentum=TOP_MOMENTUM_COUNT,
-        bottom_fip=BOTTOM_FIP_COUNT
+        bottom_fip=BOTTOM_FIP_COUNT,
+        skip_codes=args.skip or None
     )
 
     if selected_stocks:
