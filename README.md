@@ -14,6 +14,7 @@
   - [1. find_item_fip.py - FIP 포트폴리오 종목 선정](#1-find_item_fippy---fip-포트폴리오-종목-선정)
   - [2. buy_fip.py - FIP 전략 자동 리밸런싱](#2-buy_fippy---fip-전략-자동-리밸런싱)
   - [3. buy_gem.py - GEM 전략 자동 실행](#3-buy_gempy---gem-전략-자동-실행)
+  - [4. buy_sector.py - 섹터 ETF 로테이션 전략](#4-buy_sectorpy---섹터-etf-로테이션-전략)
 - [사용 예시](#사용-예시)
 - [주의사항](#주의사항)
 - [로그 및 실행 기록](#로그-및-실행-기록)
@@ -33,6 +34,11 @@
 - ✅ 최고 수익률 종목에 전액 투자
 - ✅ 자동 리밸런싱 (기존 종목 매도 후 새 종목 매수)
 - ✅ 월 1회 실행 제한
+
+### 3. 섹터 ETF 로테이션 (`buy_sector.py`)
+- ✅ 섹터 ETF 14개 중 6개월 토탈리턴 상위 3개 균등 투자
+- ✅ 월간 리밸런싱 (월 1회 실행 제한)
+- ✅ 전략 관리 종목 외 보유분 보호 (타 전략 병행 안전)
 
 ### 공통 기능
 - ✅ 실전/모의투자 모드 지원
@@ -487,6 +493,66 @@ GEM(Global Equities Momentum) 전략 시작
 
 ---
 
+## 4. buy_sector.py - 섹터 ETF 로테이션 전략
+
+### 개요
+- **전략**: 국내 섹터 ETF 14개 중 6개월 토탈리턴(NAV 변동 + 분배금) 상위 3개에 균등 투자
+- **리밸런싱**: 월 1회 (매월 실행, 같은 달 중복 실행 방지)
+- **모멘텀 룩백**: `buy_gem.py`의 `MOMENTUM_MONTHS`(6개월)를 공유
+
+### 섹터 유니버스
+반도체, IT, 자동차, 금융, 증권, 보험, 에너지화학, 철강, 건설, 중공업,
+경기소비재, 운송, 헬스케어, 소프트웨어 (2011~2012년부터 이력이 있는 KODEX/TIGER ETF,
+`buy_sector.py`의 `SECTOR_ETFS`에서 수정 가능)
+
+### 백테스트 근거 (2013-07 ~ 2026-07, 월말 수정주가 기준)
+| 구성 | CAGR | Sharpe | MDD |
+|------|------|--------|-----|
+| top3 / 6개월 | 16.6% | 0.66 | -44.9% |
+| KODEX200 B&H | 12.4% | 0.57 | -36.6% |
+| 섹터14 동일가중 B&H | 9.6% | 0.54 | -35.8% |
+
+- 보유 섹터 수 2~3개가 최적 (4개 이상은 지수 수준으로 희석, 1개는 변동성 과다)
+- 유의: 휩쏘 해(2019, 2023)에는 지수 대비 크게 뒤질 수 있으며,
+  급등 후 폭락(예: 2026-07 월 -38.6%)은 피하지 못함
+
+### 리밸런싱 로직
+1. 14개 섹터 ETF의 6개월 토탈리턴 계산 후 상위 N개(기본 3) 선정
+2. 총투자액의 99%를 N등분해 섹터당 목표 금액 산출
+3. 선정 제외된 보유 섹터: 전량 시장가 매도
+4. 선정 섹터: 보유량 → 목표량 차이만 매수/매도 (지정가 매수)
+5. **`SECTOR_ETFS`에 없는 보유 종목은 건드리지 않음** (같은 계좌에서 GEM 등 병행 가능)
+
+### 명령줄 옵션
+
+| 옵션 | 필수 | 설명 | 예시 |
+|------|------|------|------|
+| `--secret` | ✅ | 실전 계좌 secret 파일 경로 | `--secret secret.json` |
+| `--execute` | ❌ | 실제 주문 실행 (없으면 분석·계획만 출력) | `--execute` |
+| `--virtual` | ❌ | 모의투자 계좌 secret 파일 경로 | `--virtual secret_virtual.json` |
+| `--investment` | ❌ | 총 투자액 (원 단위, 기본: 현재 총평가금액) | `--investment 10000000` |
+| `--top` | ❌ | 보유 섹터 수 (기본 3) | `--top 2` |
+| `--force` | ❌ | 월 1회 제한 무시하고 강제 실행 | `--force` |
+
+### 사용 예시
+
+```bash
+# 분석 및 리밸런싱 계획만 확인 (주문 없음)
+python buy_sector.py --secret secret.json
+
+# 모의투자로 테스트
+python buy_sector.py --secret secret.json --virtual secret_virtual.json --investment 10000000 --execute
+
+# 실전 실행
+python buy_sector.py --secret secret.json --execute
+```
+
+### 실행 기록
+- `sector_execution_log.json`에 월별 실행 내역(선정 섹터, 성공 여부) 기록
+- 로그 파일: `logs/sector_YYYYMMDD_HHMMSS.log`
+
+---
+
 ## 사용 예시
 
 ### 정기 실행 (crontab)
@@ -499,6 +565,9 @@ GEM(Global Equities Momentum) 전략 시작
 
 # 매월 1일 09시 15분에 KRX300 전략 실행
 15 9 1 * * cd /path/to/qm && python buy_gem.py --secret secret.json --strategy strategy_krx300.json --execute
+
+# 매월 1일 09시 20분에 섹터 ETF 로테이션 실행
+20 9 1 * * cd /path/to/qm && python buy_sector.py --secret secret.json --execute
 ```
 
 ### 수동 실행 워크플로우
