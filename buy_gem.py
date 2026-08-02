@@ -1,6 +1,6 @@
 """
 GEM(Global Equities Momentum) 전략 실행
-12개월 토탈리턴이 가장 높은 종목에 전액 투자하는 모멘텀 전략
+6개월 토탈리턴이 가장 높은 종목에 전액 투자하는 모멘텀 전략
 
 Created on 2025-11-14
 """
@@ -12,12 +12,14 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from pykis import PyKis, KisAuth, KisQuote
 from utils.secret_loader import resolve_secret
 from utils.balance import fetch_domestic_balance
 
 
 # 투자 설정
+MOMENTUM_MONTHS = 6  # 토탈리턴 모멘텀 룩백 기간 (개월)
 MAX_RETRIES = 3  # 최대 재시도 횟수
 RETRY_DELAY = 1  # 재시도 간 대기 시간 (초)
 ORDER_DELAY = 0.5  # 주문 간 대기 시간 (초)
@@ -392,9 +394,9 @@ def get_dividends(kis: PyKis, stock_code: str, start_date: str, end_date: str) -
     return 0.0
 
 
-def calculate_12m_total_return(kis: PyKis, stock_code: str, stock_name: str = None, logger=None) -> dict:
+def calculate_total_return(kis: PyKis, stock_code: str, stock_name: str = None, logger=None) -> dict:
     """
-    12개월 토탈리턴 수익률 계산 (NAV 가격 변동 + 배당)
+    토탈리턴 수익률 계산 (NAV 가격 변동 + 배당, 룩백: MOMENTUM_MONTHS개월)
 
     Args:
         kis: PyKis 인스턴스
@@ -409,8 +411,8 @@ def calculate_12m_total_return(kis: PyKis, stock_code: str, stock_name: str = No
     today = datetime.now()
     end_date = today.strftime("%Y%m%d")
 
-    # 12개월 전 날짜
-    start_date = (today - timedelta(days=365)).strftime("%Y%m%d")
+    # 룩백 기간 전 날짜
+    start_date = (today - relativedelta(months=MOMENTUM_MONTHS)).strftime("%Y%m%d")
 
     # 1. 시작일 NAV 조회
     nav_start = get_single_nav(kis, stock_code, start_date, logger)
@@ -418,7 +420,7 @@ def calculate_12m_total_return(kis: PyKis, stock_code: str, stock_name: str = No
     if nav_start is None:
         # 영업일이 아닐 수 있으므로 며칠 앞뒤로 시도
         for offset in range(1, 10):
-            adjusted_date = (today - timedelta(days=365+offset)).strftime("%Y%m%d")
+            adjusted_date = (today - relativedelta(months=MOMENTUM_MONTHS) - timedelta(days=offset)).strftime("%Y%m%d")
             nav_start = get_single_nav(kis, stock_code, adjusted_date, logger)
             if nav_start is not None:
                 start_date = adjusted_date
@@ -895,11 +897,11 @@ def main():
         time.sleep(0.3)  # API 호출 제한 고려
 
     logger.info("="*80)
-    logger.info("📊 GEM 전략 - 12개월 토탈리턴 분석")
+    logger.info(f"📊 GEM 전략 - {MOMENTUM_MONTHS}개월 토탈리턴 분석")
     logger.info("="*80)
     logger.info(f"분석 종목: {len(target_stocks)}개")
 
-    # 각 종목의 12개월 토탈리턴 계산
+    # 각 종목의 토탈리턴 계산
     results = []
 
     for stock in target_stocks:
@@ -907,11 +909,11 @@ def main():
         logger.info(f"종목 분석: {stock['code']} ({stock['name']})")
         logger.info("-"*80)
 
-        result = calculate_12m_total_return(kis, stock['code'], stock['name'], logger)
+        result = calculate_total_return(kis, stock['code'], stock['name'], logger)
 
         if result:
             results.append(result)
-            print(f"✅ 12개월 토탈리턴: {result['total_return']:.2f}%")
+            print(f"✅ {MOMENTUM_MONTHS}개월 토탈리턴: {result['total_return']:.2f}%")
             print(f"   가격 수익률: {result['price_return']:.2f}%")
             print(f"   배당 수익률: {result['dividend_yield']:.2f}%")
         else:
@@ -931,7 +933,7 @@ def main():
     # 토탈리턴 순으로 정렬
     results.sort(key=lambda x: x['total_return'], reverse=True)
 
-    print(f"\n{'순위':<5} {'종목코드':<10} {'종목명':<30} {'12개월 토탈리턴':>15}")
+    print(f"\n{'순위':<5} {'종목코드':<10} {'종목명':<30} {str(MOMENTUM_MONTHS) + '개월 토탈리턴':>15}")
     print(f"{'-'*80}")
 
     for idx, result in enumerate(results, 1):
@@ -953,7 +955,7 @@ def main():
 
     print(f"\n{'='*80}")
     print(f"🎯 선택 종목: {best_stock['stock_code']} ({best_stock['stock_name']})")
-    print(f"   12개월 토탈리턴: {best_stock['total_return']:.2f}%")
+    print(f"   {MOMENTUM_MONTHS}개월 토탈리턴: {best_stock['total_return']:.2f}%")
     print(f"{'='*80}")
 
     # 실행 모드
