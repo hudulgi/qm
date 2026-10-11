@@ -775,6 +775,11 @@ def execute_rebalancing(kis, target_code, target_name, total_investment, is_virt
     buy_qty = int(safe_investment / current_price)
 
     if buy_qty <= 0:
+        if target_holding > 0:
+            # 잔여 예수금이 1주 가격 미만 → 추가 매수 없이 정상 종료
+            logger.info(f"[알림] 잔여 예수금이 1주 가격({current_price:,}원) 미만이라 추가 매수하지 않습니다.")
+            results['success'] = True
+            return results
         logger.error(f"❌ 매수 수량이 0입니다. 투자액을 확인하세요.")
         return results
 
